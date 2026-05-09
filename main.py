@@ -5,6 +5,12 @@ Fetches market news, analyzes with LLM, and sends institutional insights via ema
 
 import os
 import sys
+from pathlib import Path
+
+# Set working directory to script location (important for Task Scheduler)
+script_dir = Path(__file__).parent
+os.chdir(script_dir)
+
 import smtplib
 import json
 from datetime import datetime, timedelta
@@ -13,8 +19,9 @@ from email.mime.multipart import MIMEMultipart
 import requests
 from dotenv import load_dotenv
 
-# Load environment variables FIRST
-load_dotenv()
+# Load environment variables from script directory
+env_path = script_dir / '.env'
+load_dotenv(dotenv_path=env_path)
 
 # Now import OpenAI after env vars are loaded
 from openai import OpenAI
@@ -58,6 +65,7 @@ class MarketNewsletterGenerator:
     def fetch_market_news(self):
         """Fetch market news from NewsAPI for the last 24 hours"""
         print("Fetching market news...")
+        sys.stdout.flush()
         
         # Keywords focused on macro, fixed income, equities, and market-moving news
         search_terms = [
@@ -75,8 +83,9 @@ class MarketNewsletterGenerator:
         
         all_articles = []
         
-        for term in search_terms:
+        for i, term in enumerate(search_terms, 1):
             try:
+                print(f"  [{i}/{len(search_terms)}] Searching: {term}...", end="", flush=True)
                 url = "https://newsapi.org/v2/everything"
                 params = {
                     "q": term,
@@ -86,14 +95,20 @@ class MarketNewsletterGenerator:
                     "pageSize": 5
                 }
                 
-                response = requests.get(url, params=params, timeout=10)
+                response = requests.get(url, params=params, timeout=15)
                 response.raise_for_status()
                 
                 data = response.json()
                 if data["status"] == "ok":
                     all_articles.extend(data["articles"])
+                    print(" ✓")
+                    sys.stdout.flush()
+                else:
+                    print(f" ✗ ({data.get('message', 'unknown error')})")
+                    sys.stdout.flush()
             except requests.RequestException as e:
-                print(f"Error fetching news for '{term}': {e}")
+                print(f" ✗ ({str(e)[:30]})")
+                sys.stdout.flush()
                 continue
         
         # Remove duplicates based on URL
@@ -104,7 +119,8 @@ class MarketNewsletterGenerator:
                 seen_urls.add(article["url"])
                 unique_articles.append(article)
         
-        print(f"Fetched {len(unique_articles)} unique market articles")
+        print(f"\n✓ Fetched {len(unique_articles)} unique articles\n")
+        sys.stdout.flush()
         return unique_articles[:20]  # Limit to top 20 articles
     
     def analyze_with_llm(self, articles):
@@ -283,6 +299,8 @@ Be direct - what's the actual edge here?"""
             print("\n" + "="*60)
             print("MARKET NEWSLETTER GENERATOR")
             print("="*60 + "\n")
+            print(f"Running from: {os.getcwd()}")
+            print(f"Time: {datetime.now()}\n")
             
             # Fetch news
             articles = self.fetch_market_news()
@@ -302,10 +320,13 @@ Be direct - what's the actual edge here?"""
             
             print("\n" + "="*60)
             print("Newsletter generation completed successfully!")
+            print(f"Sent to: {self.recipient_email}")
             print("="*60 + "\n")
             
         except Exception as e:
             print(f"\n✗ Error during newsletter generation: {e}")
+            import traceback
+            traceback.print_exc()
             raise
 
 
